@@ -23,7 +23,6 @@ local LIFETIME = 3.5
 local SLOW_DURATION = 3
 local PARTICLE_TEXTURE = "slime_particle.png"
 
--- Effetto particelle
 local function spawn_particles(pos)
     minetest.add_particlespawner({
         amount = 20,
@@ -112,32 +111,46 @@ minetest.register_entity("throw_slimeballs:thrown_slimeball", {
     end,
 
     on_step = function(self, dtime)
-        local pos = self.object:get_pos()
-        if not self.velocity or not pos then return end
+    local pos = self.object:get_pos()
+    if not self.velocity or not pos then return end
 
-        self.timer = self.timer + dtime
-        local next_pos = vector.add(pos, vector.multiply(self.velocity, dtime))
+    self.timer = self.timer + dtime
+    local next_pos = vector.add(pos, vector.multiply(self.velocity, dtime))
+
+    local is_magma = (self.itemname == "mcl_mobitems:magma_cream")
+    if self.timer >= 0.25 then
         local ray = minetest.raycast(pos, next_pos, true, true)
-
-        local is_magma = (self.itemname == "mcl_mobitems:magma_cream")
 
         for pointed in ray do
             if pointed.type == "object" then
                 local obj = pointed.ref
-                if obj and not obj:is_player() then
+                if obj and obj:get_luaentity() ~= self then
                     apply_slowness(obj, SLOW_DURATION)
                     minetest.sound_play("mcl_mobs_slime_small", {pos = pos, gain = 0.5})
-                    if is_magma then
-                        place_fire(obj:get_pos())
-                        -- the magma cream slide instead of bouncing, feature?
-                    else
+
+                    if not is_magma then
+                        local hit_pos = obj:get_pos()
+                        for i = 1, math.random(2, 4) do
+                            local offset = {
+                                x = math.random(-1, 1),
+                                y = 0.5,
+                                z = math.random(-1, 1),
+                            }
+                            minetest.add_entity(vector.add(hit_pos, offset), "mobs_mc:slime_small")
+                        end
+
                         self.object:remove()
                         return
+                    else
+                        place_fire(obj:get_pos())
+                        -- the magma cream slide instead of bouncing, feature?
                     end
                 end
+
             elseif pointed.type == "node" then
                 local normal = vector.normalize(vector.direction(pointed.under, pointed.above))
                 self.velocity = vector.reflect(vector.multiply(self.velocity, 0.6), normal)
+
                 if is_magma then
                     place_fire(pointed.above)
                 else
@@ -145,15 +158,16 @@ minetest.register_entity("throw_slimeballs:thrown_slimeball", {
                 end
             end
         end
+    end
 
-        self.velocity = vector.add(self.velocity, vector.multiply(GRAVITY, dtime))
-        self.object:set_pos(next_pos)
+    self.velocity = vector.add(self.velocity, vector.multiply(GRAVITY, dtime))
+    self.object:set_pos(next_pos)
 
-        if self.timer > LIFETIME then
-            minetest.add_item(pos, self.itemname)
-            self.object:remove()
-        end
-    end,
+    if self.timer > LIFETIME then
+        minetest.add_item(pos, self.itemname)
+        self.object:remove()
+    end
+end,
 })
 
 for itemname, data in pairs(THROWABLE_ITEMS) do
