@@ -41,11 +41,20 @@ local function spawn_particles(pos)
         glow = 5,
     })
 end
+local forbidden_bases = {
+    ["mcl_core:water_source"] = true,
+    ["mcl_core:water_flowing"] = true,
+    ["mclx_core:river_water_source"] = true,
+    ["mclx_core:river_water_flowing"] = true,
+    ["mcl_core:lava_source"] = true,
+    ["mcl_core:lava_flowing"] = true,
+}
 
 local function place_fire(pos)
     local rounded_pos = vector.round(pos)
     local node = minetest.get_node_or_nil(rounded_pos)
-    if node and node.name == "air" then
+    local node_below = minetest.get_node_or_nil(vector.subtract(rounded_pos, {x=0,y=1,z=0}))
+    if node and node.name == "air" and node_below and not forbidden_bases[node_below.name] then
         minetest.set_node(rounded_pos, {name = "mcl_fire:fire"})
     end
 end
@@ -118,7 +127,7 @@ minetest.register_entity("throw_slimeballs:thrown_slimeball", {
     local next_pos = vector.add(pos, vector.multiply(self.velocity, dtime))
 
     local is_magma = (self.itemname == "mcl_mobitems:magma_cream")
-    if self.timer >= 0.25 then
+    if self.timer >= 0.15 then
         local ray = minetest.raycast(pos, next_pos, true, true)
 
         for pointed in ray do
@@ -130,14 +139,19 @@ minetest.register_entity("throw_slimeballs:thrown_slimeball", {
 
                     if not is_magma then
                         local hit_pos = obj:get_pos()
-                        for i = 1, math.random(2, 4) do
-                            local offset = {
-                                x = math.random(-1, 1),
-                                y = 0.5,
-                                z = math.random(-1, 1),
-                            }
-                            minetest.add_entity(vector.add(hit_pos, offset), "mobs_mc:slime_small")
-                        end
+                        local spawn_chance = 0.2  -- 20% di probabilità per ogni slime piccolo
+
+for i = 1, math.random(1, 2) do
+    if math.random() < spawn_chance then
+        local offset = {
+            x = math.random(-1, 1),
+            y = 0.5,
+            z = math.random(-1, 1),
+        }
+        minetest.add_entity(vector.add(hit_pos, offset), "mobs_mc:slime_small")
+    end
+end
+
 
                         self.object:remove()
                         return
