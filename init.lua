@@ -41,6 +41,7 @@ local function spawn_particles(pos)
         glow = 5,
     })
 end
+
 local forbidden_bases = {
     ["mcl_core:water_source"] = true,
     ["mcl_core:water_flowing"] = true,
@@ -52,12 +53,40 @@ local forbidden_bases = {
 
 local function place_fire(pos)
     local rounded_pos = vector.round(pos)
-    local node = minetest.get_node_or_nil(rounded_pos)
-    local node_below = minetest.get_node_or_nil(vector.subtract(rounded_pos, {x=0,y=1,z=0}))
-    if node and node.name == "air" and node_below and not forbidden_bases[node_below.name] then
-        minetest.set_node(rounded_pos, {name = "mcl_fire:fire"})
+    local fires_placed = 0
+    local max_fires = math.random(1, 2)
+    local attempts = 0
+    local max_attempts = 2
+
+    while fires_placed < max_fires and attempts < max_attempts do
+        attempts = attempts + 1
+
+        local offset = {
+            x = math.random(-1, 1),
+            y = 0,
+            z = math.random(-1, 1),
+        }
+
+        local base_pos = vector.add(rounded_pos, offset)
+        local below = base_pos
+        local above = vector.add(below, {x = 0, y = 1, z = 0})
+
+        local node_below = minetest.get_node_or_nil(below)
+        local node_above = minetest.get_node_or_nil(above)
+
+        if node_below and node_above then
+            if not forbidden_bases[node_below.name]
+                and node_above.name == "air"
+                and minetest.registered_nodes[node_above.name]
+                and minetest.registered_nodes[node_above.name].buildable_to then
+
+                minetest.set_node(above, {name = "mcl_fire:fire"})
+                fires_placed = fires_placed + 1
+            end
+        end
     end
 end
+
 
 local function apply_slowness(entity, duration)
     if not entity then return end
@@ -103,7 +132,7 @@ end
 minetest.register_entity("throw_slimeballs:thrown_slimeball", {
     initial_properties = {
         physical = false,
-        collide_with_objects = false,
+        collide_with_objects = true,
         pointable = false,
         collisionbox = {0, 0, 0, 0, 0, 0},
         visual = "wielditem",
@@ -114,74 +143,101 @@ minetest.register_entity("throw_slimeballs:thrown_slimeball", {
     velocity = nil,
     timer = 0,
     itemname = "mcl_mobitems:slimeball",
+    thrower = nil,
+    thrower_immune_timer = nil,
 
     set_velocity = function(self, vel)
         self.velocity = vel
     end,
 
+    set_thrower = function(self, player)
+        self.thrower = player
+        self.thrower_immune_timer = 1.0 
+    end,
+
     on_step = function(self, dtime)
-    local pos = self.object:get_pos()
-    if not self.velocity or not pos then return end
+        local pos = self.object:get_pos()
+        if not self.velocity or not pos then return end
 
-    self.timer = self.timer + dtime
-    local next_pos = vector.add(pos, vector.multiply(self.velocity, dtime))
-
-    local is_magma = (self.itemname == "mcl_mobitems:magma_cream")
-    if self.timer >= 0.15 then
-        local ray = minetest.raycast(pos, next_pos, true, true)
-
-        for pointed in ray do
-            if pointed.type == "object" then
-                local obj = pointed.ref
-                if obj and obj:get_luaentity() ~= self then
-                    apply_slowness(obj, SLOW_DURATION)
-                    minetest.sound_play("mcl_mobs_slime_small", {pos = pos, gain = 0.5})
-
-                    if not is_magma then
-                        local hit_pos = obj:get_pos()
-                        local spawn_chance = 0.2  -- 20% di probabilità per ogni slime piccolo
-
-for i = 1, math.random(1, 2) do
-    if math.random() < spawn_chance then
-        local offset = {
-            x = math.random(-1, 1),
-            y = 0.5,
-            z = math.random(-1, 1),
-        }
-        minetest.add_entity(vector.add(hit_pos, offset), "mobs_mc:slime_small")
-    end
-end
-
-
-                        self.object:remove()
-                        return
-                    else
-                        place_fire(obj:get_pos())
-                        -- the magma cream slide instead of bouncing, feature?
-                    end
-                end
-
-            elseif pointed.type == "node" then
-                local normal = vector.normalize(vector.direction(pointed.under, pointed.above))
-                self.velocity = vector.reflect(vector.multiply(self.velocity, 0.6), normal)
-
-                if is_magma then
-                    place_fire(pointed.above)
-                else
-                    return
-                end
+        self.timer = self.timer + dtime
+        if self.thrower_immune_timer then
+            self.thrower_immune_timer = self.thrower_immune_timer - dtime
+            if self.thrower_immune_timer < 0 then
+                self.thrower_immune_timer = nil
             end
         end
-    end
 
-    self.velocity = vector.add(self.velocity, vector.multiply(GRAVITY, dtime))
-    self.object:set_pos(next_pos)
+        local next_pos = vector.add(pos, vector.multiply(self.velocity, dtime))
+        local is_magma = (self.itemname == "mcl_mobitems:magma_cream")
 
-    if self.timer > LIFETIME then
-        minetest.add_item(pos, self.itemname)
-        self.object:remove()
+        if self.timer then
+            local ray = minetest.raycast(pos, next_pos, true, true)
+
+            for pointed in ray do
+                if pointed.type == "object" then
+                    local obj = pointed.ref
+                    if obj and obj:get_luaentity() ~= self then
+    if self.thrower and obj == self.thrower and self.thrower_immune_timer then
+        return
+    else
+        apply_slowness(obj, SLOW_DURATION)
+        minetest.sound_play("green_slime_attack", {pos = pos, gain = 0.5})
+
+        if not is_magma then
+            local hit_pos = obj:get_pos()
+            local spawn_chance = 0.2
+            for i = 1, math.random(1, 2) do
+                if math.random() < spawn_chance then
+                    local offset = {
+                        x = math.random(-1, 1),
+                        y = 0.5,
+                        z = math.random(-1, 1),
+                    }
+                    minetest.add_entity(vector.add(hit_pos, offset), "mobs_mc:slime_small")
+                end
+            end
+            self.object:remove()
+            return
+        else
+            place_fire(obj:get_pos())
+        end
     end
-end,
+end
+                elseif pointed.type == "node" then
+    local normal = vector.normalize(vector.direction(pointed.under, pointed.above))
+
+    if is_magma then
+        if math.abs(normal.y) > 0.5 then
+            self.velocity.y = 0
+        else
+            self.velocity.x = self.velocity.x * 0.5
+            self.velocity.z = self.velocity.z * 0.5
+        end
+        self.velocity.x = self.velocity.x * 0.95
+        self.velocity.z = self.velocity.z * 0.95    --Ignites fire randomly 
+        if not forbidden_bases[minetest.get_node(pointed.under).name] then
+    place_fire(pointed.above)
+end
+    else
+        self.velocity = vector.reflect(vector.multiply(self.velocity, 0.6), normal)
+        return
+    end
+end
+end
+end
+        local node = minetest.get_node_or_nil(pos)
+if node and forbidden_bases[node.name] then
+    self.velocity = vector.multiply(self.velocity, 0.6)
+end
+
+        self.velocity = vector.add(self.velocity, vector.multiply(GRAVITY, dtime))
+        self.object:set_pos(next_pos)
+
+        if self.timer > LIFETIME then
+            minetest.add_item(pos, self.itemname)
+            self.object:remove()
+        end
+    end,
 })
 
 for itemname, data in pairs(THROWABLE_ITEMS) do
@@ -191,6 +247,8 @@ for itemname, data in pairs(THROWABLE_ITEMS) do
 
             local dir = vector.normalize(user:get_look_dir())
             local start_pos = vector.add(user:get_pos(), {x = 0, y = 1.5, z = 0})
+            start_pos = vector.add(start_pos, vector.multiply(dir, 1))
+
             local entity = minetest.add_entity(start_pos, data.entity)
 
             if entity then
@@ -198,6 +256,7 @@ for itemname, data in pairs(THROWABLE_ITEMS) do
                 if luaentity then
                     luaentity:set_velocity(vector.multiply(dir, THROW_SPEED))
                     luaentity.itemname = itemname
+                    luaentity:set_thrower(user)
                     entity:set_properties({ textures = {data.texture or itemname} })
                 end
             end
